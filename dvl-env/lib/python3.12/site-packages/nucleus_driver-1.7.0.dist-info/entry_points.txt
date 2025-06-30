@@ -1,0 +1,2 @@
+[console_scripts]
+nucleus_driver = nucleus_driver.app:nucleus_driver_console
