@@ -43,6 +43,12 @@ Run the calibration script:
 python3 calibration/dvl_magcal.py
 ```
 
+After Calibration verify with:
+
+```bash
+python3 calibration/test_magcal.py
+```
+
 Expected values :
 
 ```bash
