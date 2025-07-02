@@ -34,3 +34,18 @@ git clone https://github.com/NortekSupport/nucleus_driver.git
 cd nucleus_driver
 pip install .
 ```
+
+## 🔧 How to Calibrate
+
+Run the calibration script:
+
+```bash
+python3 calibration/dvl_magcal.py
+```
+
+Expected values :
+
+```bash
+🧭 AHRS Mode: AHRS.MODE = 0
+📦 MAGCAL Offsets: AHRS.MAG_CAL = -0.12, 0.33, 0.08
+```
