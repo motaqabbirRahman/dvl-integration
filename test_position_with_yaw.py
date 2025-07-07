@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 
 import time
@@ -12,7 +13,7 @@ class DataID(IntEnum):
 
 
 class DVLWithYawEstimator:
-    def __init__(self, port="/dev/ttyUSB1"):
+    def __init__(self, port="/dev/ttyUSB2"):
         self.port = port
         self.driver = NucleusDriver()
         self.x = 0.0
@@ -26,6 +27,7 @@ class DVLWithYawEstimator:
         self.vy = 0.0
         self.fom_x = 0.0
         self.fom_y = 0.0
+        self.velocity_threshold = 0.01  # m/s noise cutoff
 
     def setup(self):
         self.driver.set_serial_configuration(self.port)
@@ -46,6 +48,11 @@ class DVLWithYawEstimator:
         if self.yaw is None:
             return
 
+        # Reject near-zero velocities
+        if abs(self.vx) < self.velocity_threshold and abs(self.vy) < self.velocity_threshold:
+            print("⚠️ Velocities too small — skipping")
+            return
+
         yaw_rad = math.radians(self.yaw)
         vx_ned = math.cos(yaw_rad) * self.vx - math.sin(yaw_rad) * self.vy
         vy_ned = math.sin(yaw_rad) * self.vx + math.cos(yaw_rad) * self.vy
@@ -55,7 +62,7 @@ class DVLWithYawEstimator:
 
         self.x += dx
         self.y += dy
-        self.total_distance += math.sqrt(dx**2 + dy**2)
+        self.total_distance += math.sqrt(dx ** 2 + dy ** 2)
 
     def run(self):
         print("⏳ Starting position estimation with yaw correction...")
@@ -64,7 +71,7 @@ class DVLWithYawEstimator:
 
         try:
             while True:
-                pkt = self.driver.read_packet(timeout=2.0)
+                pkt = self.driver.read_packet(timeout=3.0)
                 if not pkt:
                     continue
 
@@ -72,56 +79,61 @@ class DVLWithYawEstimator:
                 dt = now - self.last_time
                 self.last_time = now
 
+                print(f"[DEBUG] Packet received: ID={pkt.get('id')}")
+
                 if pkt["id"] == DataID.BOTTOM_TRACK:
                     try:
                         self.vx = pkt["velocityX"]
                         self.vy = pkt["velocityY"]
-                        self.fom_x = pkt.get("fomX", 1.0)
-                        self.fom_y = pkt.get("fomY", 1.0)
+                        self.fom_x = pkt.get("fomX", 2.0)
+                        self.fom_y = pkt.get("fomY", 2.0)
+                        status = pkt.get("status", 0)
+                        valid_vx = (status & (1 << 9)) != 0
+                        valid_vy = (status & (1 << 10)) != 0
+
+                        print(f"[BT] vx: {self.vx} | vy: {self.vy} | fomX: {self.fom_x} | fomY: {self.fom_y} | status: {status} | valid_vx: {valid_vx} | valid_vy: {valid_vy}")
+
+                        if not (valid_vx and valid_vy):
+                            print("⚠️ Velocity status invalid — skipping")
+                            self.vx = 0.0
+                            self.vy = 0.0
+                            continue
+
                     except KeyError:
+                        print("⚠️ Missing velocity fields")
                         continue
 
                 elif pkt["id"] == DataID.AHRS:
                     try:
                         self.last_yaw = self.yaw
-                        self.yaw = pkt["ahrsData.heading"]
+                        self.yaw = pkt["ahrsData"]["heading"]
+                        print(f"[AHRS] Yaw: {self.yaw}")
                     except KeyError:
+                        print("⚠️ Missing AHRS heading")
                         continue
 
-                # Only update position if yaw is valid
                 if self.yaw is not None:
                     self.update_position(dt)
 
-                # Print every 1 second
-                if now - self.last_print_time > 1.0:
-                    drift = math.sqrt(self.x**2 + self.y**2)
+                if now - self.last_print_time > 2.0:
+                    drift = math.sqrt(self.x ** 2 + self.y ** 2)
                     dx = self.x - getattr(self, "last_x", 0.0)
                     dy = self.y - getattr(self, "last_y", 0.0)
 
-                    # 1. Main position and heading
-                    print(
-                        f"\n📍 Traveled X: {self.x:.2f} m | Y: {self.y:.2f} m | Yaw: {self.yaw:.1f}°"
-                    )
+                    print(f"\n📍 X: {self.x} m | Y: {self.y} m | Yaw: {self.yaw}°")
+                    print(f"🧭 Total Distance: {self.total_distance} m | Distance from Start: {drift} m")
 
-                    # 2. Distance tracking
-                    print(
-                        f"🧭 Total Distance: {self.total_distance:.2f} m | Distance from Start: {drift:.2f} m"
-                    )
-
-                    # 3. HOMED check
-                    if drift < 0.10:
+                    if drift < 1:
                         print("✅ HOMED: You returned to the starting point!")
 
-                    # 4. Optional warnings
-                    if self.fom_x > 0.5 or self.fom_y > 0.5:
+                    if self.fom_x > 1.5 or self.fom_y > 1.5:
                         print("⚠️ FOM too high — Bottom Track may be unreliable!")
 
                     if self.last_yaw is not None:
                         yaw_jump = abs(self.yaw - self.last_yaw)
                         if yaw_jump > 45:
-                            print(f"⚠️ Sudden yaw jump detected: Δ{yaw_jump:.1f}°")
+                            print(f"⚠️ Sudden yaw jump detected: Δ{yaw_jump}°")
 
-                    # Save state for next cycle
                     self.last_print_time = now
                     self.last_x = self.x
                     self.last_y = self.y
@@ -134,6 +146,7 @@ class DVLWithYawEstimator:
 
 
 if __name__ == "__main__":
-    estimator = DVLWithYawEstimator(port="/dev/ttyUSB1")
+    estimator = DVLWithYawEstimator(port="/dev/ttyUSB2")
     estimator.setup()
     estimator.run()
+
