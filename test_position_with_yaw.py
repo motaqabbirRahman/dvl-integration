@@ -13,7 +13,7 @@ class DataID(IntEnum):
 
 
 class DVLWithYawEstimator:
-    def __init__(self, port="/dev/ttyUSB2"):
+    def __init__(self, port="/dev/ttyUSB0"):
         self.port = port
         self.driver = NucleusDriver()
         self.x = 0.0
@@ -79,7 +79,7 @@ class DVLWithYawEstimator:
                 dt = now - self.last_time
                 self.last_time = now
 
-                print(f"[DEBUG] Packet received: ID={pkt.get('id')}")
+                #print(f"[DEBUG] Packet received: ID={pkt.get('id')}")
 
                 if pkt["id"] == DataID.BOTTOM_TRACK:
                     try:
